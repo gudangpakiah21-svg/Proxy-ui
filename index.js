@@ -1,104 +1,136 @@
 const express = require('express');
-const net = require('net');
+const { exec, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
-const app = express();
 
-const WEB_PORT = 8081;
-const TCP_PORT = 8881;
+const app = express();
+const PORT = process.env.PORT || 8081;
+const XRAY_EXEC = path.join(__dirname, 'xray');
+const CONFIG_PATH = path.join(__dirname, 'config.json');
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Database sementara untuk menyimpan akun VPN
-const vpnAccounts = [];
+// Database akun di memori
+let vpnAccounts = [];
 
+// 1. Fungsi Mengunduh Xray Binary jika belum ada
+function setupXray(callback) {
+  if (fs.existsSync(XRAY_EXEC)) {
+    console.log('Xray core sudah siap.');
+    return callback();
+  }
+
+  console.log('Mengunduh Xray core...');
+  const downloadCmd = `curl -L -H "User-Agent: Mozilla/5.0" -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip && unzip -o xray.zip xray && chmod +x xray && rm xray.zip`;
+
+  exec(downloadCmd, (err) => {
+    if (err) {
+      console.error('Gagal mengunduh Xray:', err);
+    } else {
+      console.log('Xray core berhasil diunduh!');
+      callback();
+    }
+  });
+}
+
+// 2. Fungsi Menulis Config Xray & Restart Engine
+function updateXrayConfig() {
+  const inbounds = [
+    {
+      port: parseInt(PORT),
+      protocol: "vless",
+      settings: {
+        clients: vpnAccounts.map(a => ({ id: a.uuid, level: 0 })),
+        decryption: "none"
+      },
+      streamSettings: {
+        network: "ws",
+        wsSettings: { path: "/vless" }
+      }
+    }
+  ];
+
+  const xrayConfig = {
+    log: { loglevel: "warning" },
+    inbounds: inbounds,
+    outbounds: [{ protocol: "freedom" }]
+  };
+
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(xrayConfig, null, 2));
+
+  // Jalankan Xray jika binary tersedia
+  if (fs.existsSync(XRAY_EXEC)) {
+    exec("pkill xray", () => {
+      const xrayProcess = spawn(XRAY_EXEC, ['run', '-c', CONFIG_PATH]);
+      xrayProcess.stdout.on('data', data => console.log(`[Xray] ${data}`));
+      xrayProcess.stderr.on('data', data => console.error(`[Xray Error] ${data}`));
+    });
+  }
+}
+
+// 3. Tampilan Dashboard
 app.get('/', (req, res) => {
-  const host = req.headers.host || 'proxy-ui-production.up.railway.app';
+  const domain = req.headers.host || 'proxy-ui-production.up.railway.app';
 
-  const accountListHtml = vpnAccounts.map(acc => `
-    <div style="background: #252525; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #00e676;">
-      <p style="margin: 0 0 5px 0;"><b>User:</b> ${acc.user} | <b>Protocol:</b> ${acc.protocol.toUpperCase()}</p>
-      <small style="color: #bbb;">UUID/Pass: ${acc.uuid}</small><br>
-      <input type="text" value="${acc.configLink}" readonly style="width: 100%; margin-top: 6px; padding: 6px; background: #121212; color: #00e676; border: 1px solid #333;" onclick="this.select();" />
-    </div>
-  `).join('');
+  const accountList = vpnAccounts.map(acc => {
+    const configLink = `vless://${acc.uuid}@${domain}:443?path=%2Fvless&security=tls&encryption=none&type=ws#VLESS-${acc.user}`;
+    return `
+      <div style="background:#222; padding:12px; margin-bottom:10px; border-radius:5px; border-left:4px solid #00e676;">
+        <b>User:</b> ${acc.user}<br>
+        <small style="color:#aaa;">UUID: ${acc.uuid}</small>
+        <input type="text" value="${configLink}" readonly style="width:100%; margin-top:5px; padding:6px; background:#111; color:#00e676; border:1px solid #333;" onclick="this.select();" />
+      </div>
+    `;
+  }).join('');
 
   res.send(`
     <!DOCTYPE html>
-    <html lang="id">
+    <html>
     <head>
-      <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Proxy & VPN Dashboard</title>
+      <title>Xray VLESS Dashboard</title>
       <style>
-        body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; max-width: 600px; margin: auto; }
-        input, select { margin: 5px 0 12px 0; padding: 10px; display: block; width: 100%; box-sizing: border-box; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; }
-        button { padding: 10px 16px; background: #00e676; border: none; font-weight: bold; cursor: pointer; width: 100%; border-radius: 4px; color: #000; }
-        hr { border: 0; height: 1px; background: #333; margin: 20px 0; }
+        body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; max-width: 500px; margin: auto; }
+        input, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
+        button { background: #00e676; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
       </style>
     </head>
     <body>
-      <h2>Proxy & VPN Dashboard</h2>
-      <p>Status Server: <span style="color:lime;">RUNNING</span></p>
+      <h2>Xray VLESS Dashboard</h2>
+      <p>Status Core: <span style="color:lime;">ACTIVE</span></p>
       <hr>
-      <h3>Buat Akun VPN Baru</h3>
-      <form action="/create-vpn" method="POST">
-        <label>Username Account:</label>
-        <input type="text" name="user" placeholder="Contoh: user1" required />
-        
-        <label>Pilih Protokol VPN:</label>
-        <select name="protocol">
-          <option value="vless">VLESS (WS / TLS)</option>
-          <option value="vmess">VMess (WS / TLS)</option>
-          <option value="trojan">Trojan</option>
-          <option value="socks">SOCKS5</option>
-        </select>
-        
-        <button type="submit">Generate Akun VPN</button>
+      <form action="/create" method="POST">
+        <label>Username:</label>
+        <input type="text" name="user" placeholder="Nama Akun" required />
+        <button type="submit">Buat Akun VLESS</button>
       </form>
-
       <hr>
-      <h3>Daftar Akun & Config Link</h3>
-      ${accountListHtml || '<p style="color:#888;">Belum ada akun VPN yang dibuat.</p>'}
+      <h3>Daftar Akun VLESS</h3>
+      ${accountList || '<p style="color:#777;">Belum ada akun.</p>'}
     </body>
     </html>
   `);
 });
 
-// Penanganan submit pembuat akun VPN
-app.post('/create-vpn', (req, res) => {
-  const { user, protocol } = req.body;
-  const domain = req.headers.host || 'proxy-ui-production.up.railway.app';
-  const uuid = crypto.randomUUID();
-  let configLink = '';
-
-  // Generator Config Link berdasarkan protokol
-  if (protocol === 'vless') {
-    configLink = `vless://${uuid}@${domain}:443?path=%2Fvless&security=tls&encryption=none&type=ws#VLESS-${user}`;
-  } else if (protocol === 'vmess') {
-    const vmessJson = JSON.stringify({
-      v: "2", ps: `VMess-${user}`, add: domain, port: "443", id: uuid,
-      aid: "0", scy: "auto", net: "ws", type: "none", host: domain, path: "/vmess", tls: "tls"
-    });
-    configLink = `vmess://${Buffer.from(vmessJson).toString('base64')}`;
-  } else if (protocol === 'trojan') {
-    configLink = `trojan://${uuid}@${domain}:443?peer=${domain}&plugin=obfs-local%3Bobfs%3Dwebsocket#Trojan-${user}`;
-  } else if (protocol === 'socks') {
-    configLink = `socks5://${user}:${uuid.substring(0,8)}@${domain}:8881#SOCKS5-${user}`;
-  }
-
+app.post('/create', (req, res) => {
+  const { user } = req.body;
   if (user) {
-    vpnAccounts.push({ user, protocol, uuid, configLink });
+    const uuid = crypto.randomUUID();
+    vpnAccounts.push({ user, uuid });
+    updateXrayConfig();
   }
-
   res.redirect('/');
 });
 
-app.listen(WEB_PORT, '0.0.0.0', () => {
-  console.log(`Web UI berjalan di port ${WEB_PORT}`);
+// Jalankan Server
+setupXray(() => {
+  updateXrayConfig();
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server Web UI berjalan di port ${PORT}`);
+  });
 });
-
-const tcpServer = net.createServer((socket) => {
   console.log('Koneksi TCP masuk dari:', socket.remoteAddress);
 });
 
