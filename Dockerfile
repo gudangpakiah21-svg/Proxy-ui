@@ -1,7 +1,7 @@
 FROM ghcr.io/sagernet/sing-box:latest
 
-# Install nginx untuk melayani Web UI
-RUN apk add --no-舆-cache nginx
+# Install nginx untuk Web UI
+RUN apk add --no-cache nginx
 
 COPY config.json /etc/sing-box/config.json
 COPY index.html /var/www/html/index.html
