@@ -2,17 +2,28 @@ const express = require('express');
 const net = require('net');
 const app = express();
 
+// Railway menentukan port melalui process.env.PORT secara otomatis
 const WEB_PORT = process.env.PORT || 8081;
 const TCP_PORT = 8881;
 
 app.use(express.json());
 
+// Tampilan Web UI
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
-    <html>
-    <head><title>Proxy Dashboard</title></head>
-    <body style="font-family:sans-serif; background:#121212; color:#fff; padding:20px;">
+    <html lang="id">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Proxy Dashboard</title>
+      <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
+        input { margin: 5px 0; padding: 8px; display: block; width: 100%; max-width: 300px; }
+        button { padding: 8px 16px; background: #00e676; border: none; font-weight: bold; cursor: pointer; }
+      </style>
+    </head>
+    <body>
       <h2>Proxy Multi Protocol Dashboard</h2>
       <p>Status Server: <span style="color:lime;">RUNNING</span></p>
       <hr>
@@ -27,14 +38,16 @@ app.get('/', (req, res) => {
   `);
 });
 
-app.listen(WEB_PORT, () => {
+// Listener Express (wajib binding ke 0.0.0.0 agar terbaca di Railway)
+app.listen(WEB_PORT, '0.0.0.0', () => {
   console.log(`Web UI berjalan di port ${WEB_PORT}`);
 });
 
+// Listener TCP Proxy
 const tcpServer = net.createServer((socket) => {
   console.log('Koneksi TCP masuk dari:', socket.remoteAddress);
 });
 
-tcpServer.listen(TCP_PORT, () => {
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
   console.log(`TCP Proxy Service berjalan di port ${TCP_PORT}`);
 });
