@@ -2,7 +2,6 @@ const express = require('express');
 const net = require('net');
 const app = express();
 
-// Menggunakan PORT bawaan Railway (biasanya 3000/8000)
 const WEB_PORT = process.env.PORT || 8081;
 const TCP_PORT = 8881;
 
