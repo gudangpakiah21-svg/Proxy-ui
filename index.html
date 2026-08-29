@@ -3,18 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Proxy Multi-Protocol Dashboard</title>
+  <title>Proxy Multi-Protocol & Bug Checker</title>
   <style>
     body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; max-width: 600px; margin: auto; }
     .card { background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #00e676; }
-    input { width: 100%; padding: 8px; background: #111; color: #00e676; border: 1px solid #333; box-sizing: border-box; font-family: monospace; }
+    input, textarea, button { width: 100%; padding: 10px; background: #111; color: #00e676; border: 1px solid #333; box-sizing: border-box; font-family: monospace; margin-top: 5px; }
+    button { background: #00e676; color: #000; font-weight: bold; cursor: pointer; border: none; margin-top: 10px; }
+    .status-ok { color: #00e676; font-weight: bold; }
+    .status-bad { color: #ff5252; font-weight: bold; }
+    #resultBox { margin-top: 10px; font-size: 14px; }
   </style>
 </head>
 <body>
-  <h2>Proxy Multi-Protocol Dashboard</h2>
+  <h2>Proxy Dashboard & Bug Checker</h2>
   <p>Status Core: <span style="color:lime;">RUNNING 100%</span></p>
   <hr>
-  
+
+  <!-- Section Tools Cek Bug -->
+  <div class="card" style="border-left-color: #00b0ff;">
+    <h3>Tools Cek Bug SNI / Host</h3>
+    <label style="font-size: 12px; color: #aaa;">Masukkan daftar bug SNI (pisahkan dengan koma/spasi):</label>
+    <textarea id="bugInput" rows="3">m.instagram.com, quiz.int.xl.co.id, v.whatsapp.net, cdn.whatsapp.net</textarea>
+    <button onclick="checkBugs()">CEK BUG SEKARANG</button>
+    <div id="resultBox"></div>
+  </div>
+
+  <hr>
+
+  <!-- Section Config Link -->
   <div class="card">
     <h3>VLESS Config Link</h3>
     <input type="text" id="vless" readonly onclick="this.select()">
@@ -34,13 +50,40 @@
     const domain = window.location.host;
     const uuid = "d3b07384-d113-424a-a513-33e9d0b61e2f";
 
+    // Isi Config Links
     document.getElementById('vless').value = `vless://${uuid}@${domain}:443?path=%2Fvless&security=tls&encryption=none&type=ws#VLESS-Railway`;
-    
     const vmessJson = { v: "2", ps: "VMess-Railway", add: domain, port: "443", id: uuid, aid: "0", scy: "auto", net: "ws", type: "none", host: domain, path: "/vmess", tls: "tls" };
     document.getElementById('vmess').value = `vmess://${btoa(JSON.stringify(vmessJson))}`;
-    
     document.getElementById('trojan').value = `trojan://${uuid}@${domain}:443?path=%2Ftrojan&security=tls&type=ws#Trojan-Railway`;
+
+    // Fungsi Cek Bug
+    async function checkBugs() {
+      const rawInput = document.getElementById('bugInput').value;
+      const bugs = rawInput.split(/[\s,]+/).filter(b => b.trim() !== '');
+      const resultBox = document.getElementById('resultBox');
+      
+      resultBox.innerHTML = "<p>Memeriksa bug...</p>";
+      let outputHtml = "";
+
+      for (let bug of bugs) {
+        const startTime = Date.now();
+        try {
+          // Melakukan pengecekan respon via HTTPS
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          
+          await fetch(`https://${bug.trim()}`, { mode: 'no-cors', signal: controller.signal });
+          clearTimeout(timeoutId);
+          
+          const duration = Date.now() - startTime;
+          outputHtml += `<p>• ${bug} ➔ <span class="status-ok">[ AKTIF / RESPON ${duration}ms ]</span></p>`;
+        } catch (err) {
+          outputHtml += `<p>• ${bug} ➔ <span class="status-bad">[ GAGAL / TIMEOUT ]</span></p>`;
+        }
+      }
+
+      resultBox.innerHTML = outputHtml;
+    }
   </script>
 </body>
 </html>
-
