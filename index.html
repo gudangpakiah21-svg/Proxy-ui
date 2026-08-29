@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proxy Multi-Protocol Dashboard</title>
+  <style>
+    body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; max-width: 600px; margin: auto; }
+    .card { background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #00e676; }
+    input { width: 100%; padding: 8px; background: #111; color: #00e676; border: 1px solid #333; box-sizing: border-box; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h2>Proxy Multi-Protocol Dashboard</h2>
+  <p>Status Core: <span style="color:lime;">RUNNING 100%</span></p>
+  <hr>
+  
+  <div class="card">
+    <h3>VLESS Config Link</h3>
+    <input type="text" id="vless" readonly onclick="this.select()">
+  </div>
+
+  <div class="card">
+    <h3>VMess Config Link</h3>
+    <input type="text" id="vmess" readonly onclick="this.select()">
+  </div>
+
+  <div class="card">
+    <h3>Trojan Config Link</h3>
+    <input type="text" id="trojan" readonly onclick="this.select()">
+  </div>
+
+  <script>
+    const domain = window.location.host;
+    const uuid = "d3b07384-d113-424a-a513-33e9d0b61e2f";
+
+    document.getElementById('vless').value = `vless://${uuid}@${domain}:443?path=%2Fvless&security=tls&encryption=none&type=ws#VLESS-Railway`;
+    
+    const vmessJson = { v: "2", ps: "VMess-Railway", add: domain, port: "443", id: uuid, aid: "0", scy: "auto", net: "ws", type: "none", host: domain, path: "/vmess", tls: "tls" };
+    document.getElementById('vmess').value = `vmess://${btoa(JSON.stringify(vmessJson))}`;
+    
+    document.getElementById('trojan').value = `trojan://${uuid}@${domain}:443?path=%2Ftrojan&security=tls&type=ws#Trojan-Railway`;
+  </script>
+</body>
+</html>
+
