@@ -1,30 +1,62 @@
 {
-  "log": { "level": "info" },
+  "log": {
+    "level": "info"
+  },
   "inbounds": [
     {
       "type": "vless",
       "tag": "vless-in",
-      "listen": "::",
+      "listen": "127.0.0.1",
       "listen_port": 10000,
-      "users": [{ "name": "user1", "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f" }],
-      "transport": { "type": "ws", "path": "/vless" }
+      "users": [
+        {
+          "name": "user1",
+          "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/vless"
+      }
     },
     {
       "type": "vmess",
       "tag": "vmess-in",
-      "listen": "::",
+      "listen": "127.0.0.1",
       "listen_port": 10000,
-      "users": [{ "name": "user1", "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f", "alterId": 0 }],
-      "transport": { "type": "ws", "path": "/vmess" }
+      "users": [
+        {
+          "name": "user1",
+          "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f",
+          "alterId": 0
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/vmess"
+      }
     },
     {
       "type": "trojan",
       "tag": "trojan-in",
-      "listen": "::",
+      "listen": "127.0.0.1",
       "listen_port": 10000,
-      "users": [{ "name": "user1", "password": "d3b07384-d113-424a-a513-33e9d0b61e2f" }],
-      "transport": { "type": "ws", "path": "/trojan" }
+      "users": [
+        {
+          "name": "user1",
+          "password": "d3b07384-d113-424a-a513-33e9d0b61e2f"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/trojan"
+      }
     }
   ],
-  "outbounds": [{ "type": "direct", "tag": "direct" }]
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
 }
