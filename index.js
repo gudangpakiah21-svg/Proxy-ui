@@ -2,20 +2,18 @@ const express = require('express');
 const net = require('net');
 const app = express();
 
-// Railway menentukan port melalui process.env.PORT secara otomatis
-const WEB_PORT = process.env.PORT || 8081;
+// Paksa gunakan port 8081 agar sinkron dengan pengaturan Railway
+const WEB_PORT = 8081;
 const TCP_PORT = 8881;
 
 app.use(express.json());
 
-// Tampilan Web UI
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="id">
     <head>
       <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Proxy Dashboard</title>
       <style>
         body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
@@ -38,12 +36,10 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Listener Express (wajib binding ke 0.0.0.0 agar terbaca di Railway)
 app.listen(WEB_PORT, '0.0.0.0', () => {
   console.log(`Web UI berjalan di port ${WEB_PORT}`);
 });
 
-// Listener TCP Proxy
 const tcpServer = net.createServer((socket) => {
   console.log('Koneksi TCP masuk dari:', socket.remoteAddress);
 });
