@@ -1,6 +1,7 @@
 const express = require('express');
-const { exec } = require('child_process');
-const fs = require('fs');
+const http = require('http');
+const WebSocket = require('ws');
+const net = require('net');
 const crypto = require('crypto');
 
 const app = express();
@@ -9,31 +10,81 @@ const PORT = process.env.PORT || 8081;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Database penyimpanan akun sementara
 let vpnAccounts = [];
 
-function syncXrayConfig() {
-  const clients = vpnAccounts.map(acc => ({ id: acc.uuid, level: 0 }));
-  // Tambahkan UUID default
-  clients.push({ id: "00000000-0000-0000-0000-000000000000", level: 0 });
+// HTTP Server Express
+const server = http.createServer(app);
 
-  const xrayConfig = {
-    log: { loglevel: "warning" },
-    inbounds: [{
-      port: parseInt(PORT),
-      protocol: "vless",
-      settings: { clients, decryption: "none" },
-      streamSettings: {
-        network: "ws",
-        wsSettings: { path: "/vless" }
-      }
-    }],
-    outbounds: [{ protocol: "freedom" }]
-  };
+// WebSocket Server untuk VLESS Protocol
+const wss = new WebSocket.Server({ noServer: true });
 
-  fs.writeFileSync('config.json', JSON.stringify(xrayConfig, null, 2));
-  exec('pkill -HUP xray || ./xray run -c config.json &');
-}
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  if (pathname === '/vless') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
+// Handling VLESS over WebSocket Connection
+wss.on('connection', (ws) => {
+  ws.once('message', (msg) => {
+    if (msg.length < 24) return ws.close();
+
+    // Verifikasi UUID VLESS
+    const uuidBuf = msg.slice(1, 17);
+    const uuidHex = uuidBuf.toString('hex');
+    const clientUuid = `${uuidHex.slice(0,8)}-${uuidHex.slice(8,12)}-${uuidHex.slice(12,16)}-${uuidHex.slice(16,20)}-${uuidHex.slice(20)}`;
+
+    const isValidUser = vpnAccounts.some(acc => acc.uuid === clientUuid) || clientUuid === "00000000-0000-0000-0000-000000000000";
+    if (!isValidUser) return ws.close();
+
+    // Parse target address & port
+    const optLength = msg[17];
+    const command = msg[18 + optLength]; // 0x01 = TCP
+    if (command !== 1) return ws.close();
+
+    const port = msg.readUInt16BE(19 + optLength + 1);
+    const addrType = msg[19 + optLength];
+    let addr = '';
+    let offset = 19 + optLength + 3;
+
+    if (addrType === 1) { // IPv4
+      addr = msg.slice(offset, offset + 4).join('.');
+      offset += 4;
+    } else if (addrType === 2) { // Domain
+      const len = msg[offset];
+      addr = msg.slice(offset + 1, offset + 1 + len).toString();
+      offset += 1 + len;
+    } else if (addrType === 3) { // IPv6
+      addr = msg.slice(offset, offset + 16).toString('hex');
+      offset += 16;
+    }
+
+    // Respon header sukses ke VLESS Client
+    ws.send(Buffer.from([msg[0], 0]));
+
+    // Buat socket koneksi keluar (Tunneling Internet)
+    const targetSocket = net.connect(port, addr, () => {
+      const rawData = msg.slice(offset);
+      if (rawData.length > 0) targetSocket.write(rawData);
+
+      // Pipe data dari client ke internet & sebaliknya
+      ws.on('message', (data) => targetSocket.write(data));
+      targetSocket.on('data', (data) => ws.send(data));
+    });
+
+    targetSocket.on('error', () => ws.close());
+    ws.on('close', () => targetSocket.destroy());
+    targetSocket.on('close', () => ws.close());
+  });
+});
+
+// Tampilan Dashboard Web UI
 app.get('/', (req, res) => {
   const domain = req.headers.host || 'proxy-ui-production.up.railway.app';
 
@@ -53,7 +104,7 @@ app.get('/', (req, res) => {
     <html lang="id">
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Xray VLESS Dashboard</title>
+      <title>Native VLESS Dashboard</title>
       <style>
         body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; max-width: 500px; margin: auto; }
         input, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
@@ -61,8 +112,8 @@ app.get('/', (req, res) => {
       </style>
     </head>
     <body>
-      <h2>Xray VLESS Dashboard</h2>
-      <p>Status Core: <span style="color:lime;">RUNNING & ACTIVE</span></p>
+      <h2>Native VLESS Dashboard</h2>
+      <p>Status Server: <span style="color:lime;">RUNNING & ACTIVE</span></p>
       <hr>
       <form action="/create" method="POST">
         <label>Username:</label>
@@ -82,23 +133,13 @@ app.post('/create', (req, res) => {
   if (user) {
     const uuid = crypto.randomUUID();
     vpnAccounts.push({ user, uuid });
-    syncXrayConfig();
   }
   res.redirect('/');
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server Web UI berjalan di port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server Web UI & Native VLESS Engine aktif di port ${PORT}`);
 });
-      <p>Status Core: <span style="color:lime;">ACTIVE</span></p>
-      <hr>
-      <form action="/create" method="POST">
-        <label>Username:</label>
-        <input type="text" name="user" placeholder="Nama Akun" required />
-        <button type="submit">Buat Akun VLESS</button>
-      </form>
-      <hr>
-      <h3>Daftar Akun VLESS</h3>
       ${accountList || '<p style="color:#777;">Belum ada akun.</p>'}
     </body>
     </html>
