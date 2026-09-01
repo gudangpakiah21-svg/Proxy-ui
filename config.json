@@ -1,62 +1,27 @@
 {
-  "log": {
-    "level": "info"
-  },
   "inbounds": [
     {
-      "type": "vless",
-      "tag": "vless-in",
-      "listen": "127.0.0.1",
-      "listen_port": 10001,
-      "users": [
-        {
-          "name": "user1",
-          "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f"
+      "port": 8080,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "d3b07384-d113-424a-a513-33e9d0b61e2f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vless"
         }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/vless"
-      }
-    },
-    {
-      "type": "vmess",
-      "tag": "vmess-in",
-      "listen": "127.0.0.1",
-      "listen_port": 10002,
-      "users": [
-        {
-          "name": "user1",
-          "uuid": "d3b07384-d113-424a-a513-33e9d0b61e2f",
-          "alterId": 0
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/vmess"
-      }
-    },
-    {
-      "type": "trojan",
-      "tag": "trojan-in",
-      "listen": "127.0.0.1",
-      "listen_port": 10003,
-      "users": [
-        {
-          "name": "user1",
-          "password": "d3b07384-d113-424a-a513-33e9d0b61e2f"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "/trojan"
       }
     }
   ],
   "outbounds": [
     {
-      "type": "direct",
-      "tag": "direct"
+      "protocol": "freedom"
     }
   ]
 }
