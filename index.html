@@ -1,4 +1,73 @@
-<!DOCTYPE html>
+// ==========================================
+// CONFIGURATION BACKEND PROXY
+// ==========================================
+const proxyIP = '104.17.3.81'; // Proxy IP Cloudflare aktif pilihanmu
+const proxyPort = 443;
+
+export default {
+  async fetch(request, env, ctx) {
+    const upgradeHeader = request.headers.get('Upgrade');
+
+    // JIKA AKSES DARI TUNNEL VPN (WEBSOCKET), JALANKAN PROXY BACKEND
+    if (upgradeHeader === 'websocket') {
+      return await v2rayOverWSHandler(request);
+    }
+
+    // JIKA AKSES DARI BROWSER, TAMPILKAN DASHBOARD UI HTML
+    return new Response(htmlContent(request.headers.get('host')), {
+      headers: { "content-type": "text/html;charset=UTF-8" },
+    });
+  },
+};
+
+// ==========================================
+// BACKEND PROXY HANDLER (SOCKET & TUNNEL)
+// ==========================================
+async function v2rayOverWSHandler(request) {
+  const webSocketPair = new WebSocketPair();
+  const [client, server] = Object.values(webSocketPair);
+  server.accept();
+
+  let remoteSocket = null;
+
+  server.addEventListener('message', async (event) => {
+    if (!remoteSocket) {
+      // Connect ke Proxy IP Cloudflare untuk outbound internet
+      try {
+        const socket = connect({ hostname: proxyIP, port: proxyPort });
+        remoteSocket = socket;
+        
+        const writer = socket.writable.getWriter();
+        writer.write(event.data);
+        writer.releaseLock();
+
+        socket.readable.pipeTo(new WritableStream({
+          write(chunk) {
+            server.send(chunk);
+          }
+        }));
+      } catch (err) {
+        server.close();
+      }
+    } else {
+      const writer = remoteSocket.writable.getWriter();
+      writer.write(event.data);
+      writer.releaseLock();
+    }
+  });
+
+  server.addEventListener('close', () => {
+    if (remoteSocket) remoteSocket.close();
+  });
+
+  return new Response(null, { status: 101, webSocket: client });
+}
+
+// ==========================================
+// DASHBOARD UI HTML
+// ==========================================
+function htmlContent(currentDomain) {
+  return `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
@@ -7,42 +76,31 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background-color: #121212; color: #fff; padding-bottom: 40px; }
-    
-    /* Header & Navigation */
     header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: #1e1e1e; border-bottom: 1px solid #333; position: relative; }
     .logo { font-size: 22px; font-weight: 800; color: #fff; text-decoration: none; }
     .logo span { color: #00e676; }
-    
     .header-right { display: flex; align-items: center; gap: 15px; }
     .server-time { font-size: 12px; color: #aaa; text-align: right; }
     .menu-btn { background: transparent; border: 1px solid #00e676; color: #00e676; padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; }
-    
     .nav-menu { display: none; position: absolute; top: 100%; left: 0; width: 100%; background: #1e1e1e; border-bottom: 1px solid #333; padding: 15px 20px; flex-direction: column; gap: 12px; z-index: 10; }
     .nav-menu.active { display: flex; }
     .nav-menu a { text-decoration: none; color: #ccc; font-weight: 500; font-size: 14px; }
     .btn-signin { background: #00e676; color: #000 !important; text-align: center; padding: 8px; border-radius: 6px; font-weight: 600; margin-top: 5px; }
-
-    /* Hero Section */
     .hero { text-align: center; padding: 30px 20px 10px; max-width: 600px; margin: 0 auto; }
     .hero h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 10px; }
     .hero p { color: #aaa; line-height: 1.5; font-size: 14px; }
-
-    /* Main Container & Tabs */
     .container { display: flex; flex-direction: column; align-items: center; padding: 20px; }
     .tabs { display: flex; gap: 8px; margin-bottom: 20px; width: 100%; max-width: 500px; overflow-x: auto; }
     .tab-btn { flex: 1; padding: 10px; background: #2a2a2a; color: #aaa; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; text-align: center; font-size: 13px; white-space: nowrap; }
     .tab-btn.active { background: #00e676; color: #000; }
-
     .card { background: #1e1e1e; padding: 20px; border-radius: 12px; max-width: 500px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #2a2a2a; display: none; margin-bottom: 15px; }
     .card.active { display: block; }
-
     label { font-size: 12px; color: #aaa; font-weight: bold; display: block; margin-top: 15px; text-transform: uppercase; }
     input, textarea, select, button.btn-action { width: 100%; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; font-family: monospace; }
     input, select { background: #2a2a2a; color: #fff; padding: 12px; }
     textarea { background: #000; color: #00e676; padding: 10px; height: 90px; resize: vertical; }
-    button.btn-action { background: #00e676; color: #000; font-weight: bold; padding: 12px; border: none; cursor: pointer; margin-top: 15px; font-size: 14px; }
+    button.btn-action { background: #00e676; color: #000; font-weight: bold; padding: 12px; border: none; cursor: pointer; margin-top: 15px; font-size: 14px; border-radius: 8px; }
     button.btn-action:hover { background: #00c853; }
-    
     .status-ok { color: #00e676; font-weight: bold; }
     .status-bad { color: #ff5252; font-weight: bold; }
     #resultBox { margin-top: 10px; font-size: 13px; line-height: 1.6; }
@@ -50,17 +108,12 @@
   </style>
 </head>
 <body>
-
   <header>
     <a href="#" class="logo">Proxy <span>Dashboard</span></a>
-    
     <div class="header-right">
-      <div class="server-time">
-        Time Server <span id="clock">--:--</span><br>(GMT+7)
-      </div>
+      <div class="server-time">Time Server <span id="clock">--:--</span><br>(GMT+7)</div>
       <button class="menu-btn" onclick="toggleMenu()">Menu</button>
     </div>
-
     <nav class="nav-menu" id="dropdownMenu">
       <a href="#" onclick="switchTab('bug-checker')">Bug Checker</a>
       <a href="#" onclick="switchTab('direct-config')">Direct Config Link</a>
@@ -72,7 +125,7 @@
 
   <section class="hero">
     <h1>Proxy Multi-Protocol & Bug Checker</h1>
-    <p>Status Core: <span class="status-ok">RUNNING 100%</span></p>
+    <p>Status Core: <span class="status-ok">RUNNING 100%</span> | Proxy IP: <span style="color:#00b0ff;">104.17.3.81</span></p>
   </section>
 
   <div class="container">
@@ -83,7 +136,6 @@
       <button class="tab-btn" id="btn-tab-convert" onclick="switchTab('converter')">Converter</button>
     </div>
 
-    <!-- CARD 1: TOOLS CEK BUG -->
     <div class="card active" id="card-bug-checker" style="border-left: 4px solid #00b0ff;">
       <h3 style="color: #00b0ff;">Tools Cek Bug SNI / Host</h3>
       <label>Masukkan daftar bug SNI (pisahkan koma/spasi):</label>
@@ -92,13 +144,150 @@
       <div id="resultBox"></div>
     </div>
 
-    <!-- CARD 2: DIRECT CONFIG LINKS -->
     <div class="card" id="card-direct-config">
       <h3>VLESS Config Link</h3>
       <input type="text" id="vless" readonly onclick="this.select()">
-
       <label style="margin-top: 15px;">VMess Config Link</label>
       <input type="text" id="vmess" readonly onclick="this.select()">
+      <label style="margin-top: 15px;">Trojan Config Link</label>
+      <input type="text" id="trojan" readonly onclick="this.select()">
+    </div>
+
+    <div class="card" id="card-create-vpn">
+      <h3>Generator Akun VPN</h3>
+      <label>SERVER / DOMAIN</label>
+      <select id="vpnCountry">
+        <option value="${currentDomain}">${currentDomain} (Current Server)</option>
+        <option value="railway.defriancs12.my.id">🇸🇬 Singapore (Railway)</option>
+        <option value="sg.defriancs12.my.id">🇸🇬 Singapore (SG Node)</option>
+        <option value="id.defriancs12.my.id">🇮🇩 Indonesia (ID Node)</option>
+      </select>
+      <label>PROTOKOL</label>
+      <select id="vpnProtocol">
+        <option value="vless">VLESS WebSocket</option>
+        <option value="trojan">Trojan WS</option>
+        <option value="vmess">VMess WS</option>
+      </select>
+      <label>PORT SERVER</label>
+      <select id="vpnPort">
+        <option value="443" selected>443 (TLS)</option>
+        <option value="8443">8443 (TLS)</option>
+        <option value="80">80 (HTTP/NTLS)</option>
+        <option value="8080">8080 (HTTP/NTLS)</option>
+      </select>
+      <label>USERNAME</label>
+      <input type="text" id="vpnUser" placeholder="Masukkan username...">
+      <button class="btn-action" onclick="generateVpnAccount()">CREATE ACCOUNT ONLINE</button>
+      <pre id="vpnOutputResult"></pre>
+    </div>
+
+    <div class="card" id="card-converter">
+      <h3>Proxy Config Converter</h3>
+      <label>PASTE CONFIGS (ONE PER LINE)</label>
+      <textarea id="inputConfig" placeholder="trojan://... atau vless://..."></textarea>
+      <label>FORMAT TARGET</label>
+      <select id="formatTarget">
+        <option value="clash">Clash - Proxy Only (YAML)</option>
+        <option value="singbox">Sing-box (JSON)</option>
+      </select>
+      <button class="btn-action" onclick="convertConfig()">CONVERT NOW</button>
+      <pre id="outputResult"></pre>
+    </div>
+  </div>
+
+  <script>
+    const domain = window.location.host;
+    const uuidStatic = "d3b07384-d113-424a-a513-33e9d0b61e2f";
+    document.getElementById('vless').value = \`vless://\${uuidStatic}@\${domain}:443?path=%2Fvless&security=tls&encryption=none&type=ws#VLESS-Cloudflare\`;
+    const vmessJson = { v: "2", ps: "VMess-Cloudflare", add: domain, port: "443", id: uuidStatic, aid: "0", scy: "auto", net: "ws", type: "none", host: domain, path: "/vmess", tls: "tls" };
+    document.getElementById('vmess').value = \`vmess://\${btoa(JSON.stringify(vmessJson))}\`;
+    document.getElementById('trojan').value = \`trojan://\${uuidStatic}@\${domain}:443?path=%2Ftrojan&security=tls&type=ws#Trojan-Cloudflare\`;
+
+    function toggleMenu() { document.getElementById('dropdownMenu').classList.toggle('active'); }
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock').textContent = new Intl.DateTimeFormat([], { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+    }
+    setInterval(updateClock, 1000); updateClock();
+
+    function switchTab(tabName) {
+      ['bug-checker', 'direct-config', 'create-vpn', 'converter'].forEach(t => {
+        const card = document.getElementById(\`card-\${t}\`);
+        const btn = document.getElementById(\`btn-tab-\${t.split('-')[0]}\`);
+        if (t === tabName) { card.classList.add('active'); if(btn) btn.classList.add('active'); }
+        else { card.classList.remove('active'); if(btn) btn.classList.remove('active'); }
+      });
+      document.getElementById('dropdownMenu').classList.remove('active');
+    }
+
+    async function checkBugs() {
+      const bugs = document.getElementById('bugInput').value.split(/[\\s,]+/).filter(b => b.trim() !== '');
+      const resultBox = document.getElementById('resultBox');
+      resultBox.innerHTML = "<p>Memeriksa bug...</p>";
+      let outputHtml = "";
+      for (let bug of bugs) {
+        const startTime = Date.now();
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          await fetch(\`https://\${bug.trim()}\`, { mode: 'no-cors', signal: controller.signal });
+          clearTimeout(timeoutId);
+          outputHtml += \`<p>• \${bug} ➔ <span class="status-ok">[ AKTIF / RESPON \${Date.now() - startTime}ms ]</span></p>\`;
+        } catch (err) {
+          outputHtml += \`<p>• \${bug} ➔ <span class="status-bad">[ GAGAL / TIMEOUT ]</span></p>\`;
+        }
+      }
+      resultBox.innerHTML = outputHtml;
+    }
+
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => (Math.random() * 16 | 0).toString(16));
+    }
+
+    function generateVpnAccount() {
+      const server = document.getElementById('vpnCountry').value;
+      const protocol = document.getElementById('vpnProtocol').value;
+      const port = document.getElementById('vpnPort').value;
+      const user = document.getElementById('vpnUser').value.trim() || 'user-free';
+      const output = document.getElementById('vpnOutputResult');
+      const isTls = ['443', '8443'].includes(port);
+      const uuid = generateUUID();
+      const name = \`\${user}-\${port}\`;
+      let link = '';
+      if (protocol === 'vless') link = \`vless://\${uuid}@\${server}:\${port}?path=%2F&\${isTls ? 'security=tls&' : 'security=none&'}encryption=none&type=ws&sni=\${server}#\${name}\`;
+      else if (protocol === 'trojan') link = \`trojan://\${uuid}@\${server}:\${port}?path=%2F&\${isTls ? 'security=tls&' : 'security=none&'}type=ws&sni=\${server}#\${name}\`;
+      else if (protocol === 'vmess') link = "vmess://" + btoa(JSON.stringify({ v: "2", ps: name, add: server, port: port, id: uuid, aid: "0", scy: "auto", net: "ws", type: "none", host: server, path: "/", tls: isTls ? "tls" : "", sni: server }));
+      output.textContent = \`=== CONFIG CREATED ===\\nRemark: \${name}\\nUUID: \${uuid}\\nURL:\\n\${link}\`;
+      output.style.display = 'block';
+    }
+
+    function convertConfig() {
+      const input = document.getElementById('inputConfig').value.trim();
+      const format = document.getElementById('formatTarget').value;
+      const output = document.getElementById('outputResult');
+      if (!input) return alert('Masukkan URL config terlebih dahulu!');
+      try {
+        const url = new URL(input);
+        const protocol = url.protocol.replace(':', '');
+        const uuid = url.username;
+        const host = url.hostname;
+        const port = parseInt(url.port) || 443;
+        const params = new URLSearchParams(url.search);
+        const name = decodeURIComponent(url.hash.replace('#', '')) || 'Proxy-Node';
+        let result = '';
+        if (format === 'clash') {
+          result = \`proxies:\\n  - name: "\${name}"\\n    type: \${protocol}\\n    server: \${host}\\n    port: \${port}\\n    password: "\${uuid}"\\n    uuid: "\${uuid}"\\n    udp: true\\n    tls: \${params.get('security') === 'tls'}\\n    skip-cert-verify: true\\n    servername: \${params.get('sni') || host}\\n    network: \${params.get('type') || 'ws'}\\n    ws-opts:\\n      path: "\${params.get('path') || '/'}"\\n      headers:\\n        Host: \${params.get('host') || host}\`;
+        } else {
+          result = JSON.stringify({ type: protocol, tag: name, server: host, server_port: port, uuid: uuid, tls: { enabled: true, server_name: params.get('sni') || host } }, null, 2);
+        }
+        output.textContent = result;
+        output.style.display = 'block';
+      } catch (e) { alert('Format URL tidak valid!'); }
+    }
+  </script>
+</body>
+</html>`;
+}
 
       <label style="margin-top: 15px;">Trojan Config Link</label>
       <input type="text" id="trojan" readonly onclick="this.select()">
